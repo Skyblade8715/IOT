@@ -1,0 +1,6 @@
+<resources>
+    <string name="app_name">IOTSensorsApp</string>
+    <string name="calm_reaction">Please, stay quiet...</string>
+    <string name="annoyed_reaction">I said - BE QUIET!</string>
+    <string name="panic_reaction">AAAAAAAAAAAAAAAA!!!</string>
+</resources>
