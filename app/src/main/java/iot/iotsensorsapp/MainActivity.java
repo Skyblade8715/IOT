@@ -5,6 +5,11 @@ import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
 import android.content.pm.PackageManager;
+import android.graphics.Color;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.os.Bundle;
 import android.util.Log;
 import android.view.View;
@@ -24,7 +29,18 @@ import com.agilie.agmobilegiftinterface.shake.ShakeBuilder;
 import java.io.File;
 import java.io.IOException;
 
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements SensorEventListener {
+
+    private SensorManager mSensorManager;
+    private Sensor mAccelerometer;
+    private Sensor mMagnetometer;
+
+    private float[] mLastAccelerometer = new float[3];
+    private float[] mLastMagnetometer = new float[3];
+    private boolean mLastAccelerometerSet = false;
+    private boolean mLastMagnetometerSet = false;
+    private float[] mR = new float[9];
+    private float[] mOrientation = new float[3];
 
     private MyMediaRecorder audio;
     private double lastLevel = 0;
@@ -34,8 +50,10 @@ public class MainActivity extends Activity {
     private int bufferSize,
             AUDIO_PERMISSION_CODE = 4444,
             STORAGE_PERMISSION_CODE = 5555;
-    TextView textView;
-    TextView display;
+    TextView textView,
+            orient_x,
+            orient_y,
+            orient_z;
     boolean permission = false,
             gravity = false,
             shaking = false;
@@ -51,6 +69,10 @@ public class MainActivity extends Activity {
         ViewGroup group = findViewById(R.id.mainRootLayout);
         gravityController = new GravityControllerImpl(this, group);
         shaker = new InterfaceInteractorImpl().shake(this).build();
+
+        mSensorManager = (SensorManager)getSystemService(SENSOR_SERVICE);
+        mAccelerometer = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mMagnetometer = mSensorManager.getDefaultSensor(Sensor.TYPE_MAGNETIC_FIELD);
 
          if(!checkPermission()){
              requestPermission();
@@ -70,7 +92,9 @@ public class MainActivity extends Activity {
         audio = new MyMediaRecorder();
         button1 = findViewById(R.id.button);
         textView = findViewById(R.id.tv);
-        display = findViewById(R.id.display);
+        orient_x = findViewById(R.id.orientation_x);
+        orient_y = findViewById(R.id.orientation_y);
+        orient_z = findViewById(R.id.orientation_z);
 
         button1.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -138,7 +162,7 @@ public class MainActivity extends Activity {
         thread.start();
     }
 
-    public  void controlGravity_Shake(){
+    public void controlGravity_Shake(){
         if(shaking){
             shaker.shakeMyActivity();
         } else {
@@ -147,11 +171,17 @@ public class MainActivity extends Activity {
         if(gravity){
             gravityController.start();
             button1.setText("Eh... Should I help you with that?");
-            textView.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
+            button1.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
         } else {
             gravityController.stop();
             button1.setText("Life is nice!");
-            textView.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
+            button1.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
+            orient_x.setText("I'm a compass!");
+            orient_x.setTextColor(Color.BLACK);
+            orient_y.setText("I measure pitch!");
+            orient_y.setTextColor(Color.BLACK);
+            orient_z.setText("I measure roll!");
+            orient_z.setTextColor(Color.BLACK);
         }
     }
 
@@ -160,13 +190,75 @@ public class MainActivity extends Activity {
         textView.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
     }
 
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        if (event.sensor == mAccelerometer) {
+            System.arraycopy(event.values, 0, mLastAccelerometer, 0, event.values.length);
+            mLastAccelerometerSet = true;
+        } else if (event.sensor == mMagnetometer) {
+            System.arraycopy(event.values, 0, mLastMagnetometer, 0, event.values.length);
+            mLastMagnetometerSet = true;
+        }
+        if (mLastAccelerometerSet && mLastMagnetometerSet) {
+            SensorManager.getRotationMatrix(mR, null, mLastAccelerometer, mLastMagnetometer);
+            SensorManager.getOrientation(mR, mOrientation);
+            Log.i("OrientationTestActivity", String.format("Orientation: %f, %f, %f",
+                    mOrientation[0], mOrientation[1], mOrientation[2]));
+            if(gravity) {
+                orientationSensorsHotCold(mOrientation[0], mOrientation[1], mOrientation[2]);
+                if (mOrientation[0] > 1.2 && mOrientation[0] < 2.0) {
+                    if (mOrientation[1] > 0.3 && mOrientation[1] < 1.2) {
+                        if (mOrientation[2] > -0.8 && mOrientation[2] < 0.7) {
+                            gravity = false;
+                            controlGravity_Shake();
+                            Log.e("OrientationTestActivity", String.format("Orientation: %f, %f, %f",
+                                    mOrientation[0], mOrientation[1], mOrientation[2]));
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    void orientationSensorsHotCold(double compass, double pitch, double roll){
+        if(compass < 2.4 && compass > 0.8){
+            orient_x.setText("Compass: hoot...");
+            orient_x.setTextColor(Color.RED);
+        } else {
+            orient_x.setText("Compass: cold");
+            orient_x.setTextColor(Color.BLUE);
+        }
+        if(pitch < 1.4 && pitch > 0.1){
+            orient_y.setText("Pitch: hoot...");
+            orient_y.setTextColor(Color.RED);
+        } else {
+            orient_y.setText("Pitch: cold");
+            orient_y.setTextColor(Color.BLUE);
+        }
+        if(roll < 0.9  && roll > -1.0){
+            orient_z.setText("Roll: hoot...");
+            orient_z.setTextColor(Color.RED);
+        } else {
+            orient_z.setText("Roll: cold");
+            orient_z.setTextColor(Color.BLUE);
+        }
+    }
+
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+    }
+
+    @Override
+    public void onPointerCaptureChanged(boolean hasCapture) {
+
+    }
+
     public void startRecord(File fFile){
         try{
             audio.setMyRecAudioFile(fFile);
             if (audio.startRecording()) {
                 startListenAudio();
             }else{
-                Toast.makeText(this, "REEEEEEEEEEE", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Error with audio recoding!", Toast.LENGTH_SHORT).show();
             }
         } catch(Exception e){
             e.printStackTrace();
@@ -223,6 +315,10 @@ public class MainActivity extends Activity {
         super.onResume();
         File file = createFile("temp.amr");
         startRecord(file);
+        mLastAccelerometerSet = false;
+        mLastMagnetometerSet = false;
+        mSensorManager.registerListener(this, mAccelerometer, SensorManager.SENSOR_DELAY_NORMAL);
+        mSensorManager.registerListener(this, mMagnetometer, SensorManager.SENSOR_DELAY_NORMAL);
     }
 
     @Override
@@ -232,6 +328,7 @@ public class MainActivity extends Activity {
             thread = null;
         }
         audio.stopRecording();
+        mSensorManager.unregisterListener(this);
     }
 
     @Override
@@ -242,52 +339,5 @@ public class MainActivity extends Activity {
         }
         audio.stopRecording();
     }
-}
 
-//    private void record(){
-//        audio.startRecording();
-//        thread = new Thread(new Runnable() {
-//            public void run() {
-//                while(thread != null && !thread.isInterrupted()){
-//                    try{
-//                        Thread.sleep(SAMPLE_DELAY);
-//                    }
-//                    catch(InterruptedException ie){
-//                        ie.printStackTrace();
-//                    }
-//                    runOnUiThread(new Runnable() {
-//
-//                        @Override
-//                        public void run() {
-//                            display.setText(lastLevel + "db");
-//                            if(lastLevel > 70){
-//                                if(!gravity) {
-//                                    gravity = true;
-//                                    gravityController.start();
-//                                    textView.setText(R.string.panic_reaction);
-//                                    textView.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
-//                                }
-//                            } else if(lastLevel > 30){
-//                                if(!shaking) {
-//                                    shaking = true;
-//                                    shaker.shakeMyActivity();
-//                                    if (!gravity) {
-//                                        textView.setText(R.string.annoyed_reaction);
-//                                        textView.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
-//                                    }
-//                                }
-//                            } else{
-//                                if(!gravity && shaking){
-//                                    textView.setText(R.string.calm_reaction);
-//                                    textView.startAnimation(AnimationUtils.loadAnimation(MainActivity.this, android.R.anim.fade_in));
-//                                    shaker.stopAnimation();
-//                                    shaking = false;
-//                                }
-//                            }
-//                        }
-//                    });
-//                }
-//            }
-//        });
-//        thread.start();
-//    }
+}
